@@ -1,17 +1,17 @@
-import React, { useMemo, useState, useEffect, useRef, memo, useCallback } from "react";
+import React, { useMemo, useState, useEffect, useRef, memo } from "react";
 
 /**
  * 🎯 Sorteio Ao Vivo — App.tsx (TypeScript + React)
  * - Abas: Principal | Cadastro Participante | Cadastro Prêmio | Sorteio | Auditoria
- * - Palco dentro da aba Sorteio
- * - Visual responsivo via index.css
+ * - Palco foi incorporado dentro da aba Sorteio
+ * - Visual responsivo via index.css (sem <style> dentro do componente)
  * - Cadastro/importação de participantes (bloqueio de duplicados insensitive)
  * - Cadastro de prêmios e ordem
  * - Sorteio por cupom (quem ganha não volta)
  * - Contagem regressiva + roleta
- * - Confete
+ * - Confete ao sair ganhador
  * - Auditoria (CSV / Excel .xls)
- * - FIX foco: inputs não-controlados (refs) e edição por linha com onBlur
+ * - FIX foco: inputs não-controlados (refs) e edição por linha memoizada com onBlur
  */
 
 type Participant = { name: string; qty: number };
@@ -85,7 +85,7 @@ function downloadExcel(filename: string, rows: Array<Record<string, any>>) {
   URL.revokeObjectURL(url);
 }
 
-// 🎊 Confete simples
+// 🎊 Confete simples (sem libs externas)
 function launchConfetti() {
   const colors = ["#f43f5e", "#f59e0b", "#10b981", "#3b82f6", "#a855f7", "#22d3ee"];
   const count = 140;
@@ -110,6 +110,7 @@ function launchConfetti() {
   }
 }
 
+// 🔁 Palco agora é parte da aba Sorteio — removemos a aba "palco"
 const TABS = [
   { key: "principal", label: "Principal" },
   { key: "cad_part", label: "Cadastro Participante" },
@@ -127,23 +128,20 @@ export default function App() {
   const [prizes, setPrizes] = useLocalStorage<Prize[]>("sv_prizes", []);
   const [winners, setWinners] = useLocalStorage<Winner[]>("sv_winners", []);
   const [audit, setAudit] = useLocalStorage<AuditRow[]>("sv_audit", []);
-  const [presenterMode, setPresenterMode] = useLocalStorage<boolean>("sv_presenter", false);
+  const [presenterMode, setPresenterMode] = useLocalStorage<boolean>("sv_presenter", false); // (mantido se quiser usar depois)
   const [highlight, setHighlight] = useState<Winner | null>(null);
-  const [tab, setTab] = useLocalStorage<TabKey>("sv_tab", "sorteio");
+  const [tab, setTab] = useLocalStorage<TabKey>("sv_tab", "sorteio"); // já inicia em Sorteio, se preferir
 
-  // REFs (inputs não-controlados)
+  // ---------- REFs para inputs NÃO-CONTROLADOS (fix foco)
   const pNameRef = useRef<HTMLInputElement | null>(null);
   const pQtyRef = useRef<HTMLInputElement | null>(null);
   const bulkRef = useRef<HTMLTextAreaElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const prizeNameRef = useRef<HTMLInputElement | null>(null);
 
-  // busca derivada do ref
+  // busca é um estado derivado do ref (atualiza sem controlar o input)
   const [search, setSearch] = useState("");
-  const applySearchFromRef = useCallback(
-    () => setSearch((searchRef.current?.value || "").trim()),
-    []
-  );
+  const applySearchFromRef = () => setSearch((searchRef.current?.value || "").trim());
 
   const [countdown, setCountdown] = useState(0);
   const [rolling, setRolling] = useState(false);
@@ -176,23 +174,23 @@ export default function App() {
     return pool;
   }, [participants, winnersSet]);
 
-  // Limpeza do timer
-  useEffect(() => {
-    return () => {
+  // Limpeza do timer da roleta
+  useEffect(
+    () => () => {
       if (rollTimerRef.current) window.clearInterval(rollTimerRef.current);
-    };
-  }, []);
+    },
+    []
+  );
 
   // Utils
-  const addParticipant = useCallback(() => {
+  const addParticipant = () => {
     const name = (pNameRef.current?.value || "").trim();
     const qty = Number(pQtyRef.current?.value || "");
     if (!name || !Number.isFinite(qty) || qty <= 0) return;
-
     setParticipants((prev) => {
       const exists = prev.find((x) => (x.name || "").toLowerCase() === name.toLowerCase());
       if (exists) {
-        alert("Este nome já está cadastrado (sem duplicados, independente de maiúsculas/minúsculas).");
+        alert("Este nome já está cadastrado (não permitimos duplicados independentemente de maiúsculas/minúsculas).");
         return prev;
       }
       return [...prev, { name, qty }];
@@ -200,34 +198,24 @@ export default function App() {
     if (pNameRef.current) pNameRef.current.value = "";
     if (pQtyRef.current) pQtyRef.current.value = "";
     pNameRef.current?.focus();
-  }, [setParticipants]);
+  };
 
-  const editParticipantQty = useCallback(
-    (name: string, newQty: string) => {
-      const qty = Math.max(0, Number(newQty) || 0);
-      setParticipants((prev) => prev.map((p) => (p.name === name ? { ...p, qty } : p)));
-    },
-    [setParticipants]
-  );
+  const editParticipantQty = (name: string, newQty: string) => {
+    const qty = Math.max(0, Number(newQty) || 0);
+    setParticipants((prev) => prev.map((p) => (p.name === name ? { ...p, qty } : p)));
+  };
 
-  const removeParticipant = useCallback(
-    (name: string) => setParticipants((prev) => prev.filter((p) => p.name !== name)),
-    [setParticipants]
-  );
-
-  const bulkImport = useCallback(() => {
+  const bulkImport = () => {
     const raw = bulkRef.current?.value || "";
     const lines = raw.split(/\n+/).map((l) => l.trim()).filter(Boolean);
     if (!lines.length) return;
-
     const lowerExisting = new Set(participants.map((p) => (p.name || "").toLowerCase()));
     const toAdd: Participant[] = [];
     let skipped = 0;
-
     for (const line of lines) {
-      const parts = line.split(/[,;\t]/).map((x) => x.trim()).filter(Boolean);
-      const name = parts[0] || "";
-      const qty = Number(parts[1] || "0");
+      const [nameRaw, qtyRaw] = line.split(/[,;\t]/);
+      const name = (nameRaw || "").trim();
+      const qty = Number((qtyRaw || "").trim());
       if (!name || !Number.isFinite(qty) || qty <= 0) {
         skipped++;
         continue;
@@ -239,66 +227,49 @@ export default function App() {
       }
       toAdd.push({ name, qty });
     }
-
     setParticipants((prev) => [...prev, ...toAdd]);
     if (bulkRef.current) bulkRef.current.value = "";
-    if (skipped) alert(`${skipped} linha(s) ignorada(s) (inválidas ou nome duplicado).`);
-  }, [participants, setParticipants]);
+    if (skipped) alert(`${skipped} linha(s) ignorada(s) por inválidas ou nome duplicado.`);
+  };
 
-  const addPrize = useCallback(() => {
+  const removeParticipant = (name: string) =>
+    setParticipants((prev) => prev.filter((p) => p.name !== name));
+
+  const addPrize = () => {
     const nm = (prizeNameRef.current?.value || "").trim();
     if (!nm) return;
     setPrizes((prev) => [...prev, { name: nm, order: prev.length + 1 }]);
     if (prizeNameRef.current) prizeNameRef.current.value = "";
     prizeNameRef.current?.focus();
-  }, [setPrizes]);
+  };
+  const removePrize = (name: string) =>
+    setPrizes((prev) => prev.filter((p) => p.name !== name).map((p, i) => ({ ...p, order: i + 1 })));
 
-  const removePrize = useCallback(
-    (name: string) => {
-      setPrizes((prev) => prev.filter((p) => p.name !== name).map((p, i) => ({ ...p, order: i + 1 })));
-    },
-    [setPrizes]
-  );
-
-  const resetWinners = useCallback(() => {
+  const resetWinners = () => {
     setWinners([]);
     setHighlight(null);
-  }, [setWinners]);
-
-  const hardReset = useCallback(() => {
+  };
+  const hardReset = () => {
     if (!confirm("Zerar tudo? Participantes, prêmios e auditoria serão apagados.")) return;
     setParticipants([]);
     setPrizes([]);
     setWinners([]);
     setAudit([]);
     setHighlight(null);
-  }, [setParticipants, setPrizes, setWinners, setAudit]);
+  };
 
-  const drawCore = useCallback(() => {
-    // leitura atual do pool e prêmios
-    const currentPool = (() => {
-      const pool: Array<{ name: string; couponNumber: number }> = [];
-      for (const p of participants) {
-        if (winnersSet.has((p.name || "").toLowerCase())) continue;
-        const qty = Math.max(0, Number(p.qty) || 0);
-        for (let i = 1; i <= qty; i++) pool.push({ name: p.name, couponNumber: i });
-      }
-      return pool;
-    })();
-    const currentRemaining = prizes.filter((pr) => !winners.some((w) => w.prize === pr.name));
-
-    if (!currentPool.length) {
+  const drawCore = () => {
+    if (!couponsPool.length) {
       alert("Sem cupons elegíveis (ou todos já ganharam).");
       return null;
     }
-    if (!currentRemaining.length) {
+    if (!remainingPrizes.length) {
       alert("Sem prêmios restantes.");
       return null;
     }
-
-    const idx = Math.floor(Math.random() * currentPool.length);
-    const pick = currentPool[idx];
-    const prize = currentRemaining[0];
+    const idx = Math.floor(Math.random() * couponsPool.length);
+    const pick = couponsPool[idx];
+    const prize = remainingPrizes[0];
     const now = new Date();
     const win: Winner = {
       name: pick.name,
@@ -306,7 +277,6 @@ export default function App() {
       prize: prize.name,
       ts: now.toISOString(),
     };
-
     setWinners((prev) => [...prev, win]);
     setAudit((prev) => [
       ...prev,
@@ -322,98 +292,63 @@ export default function App() {
     setHighlight(win);
     launchConfetti();
     return win;
-  }, [participants, prizes, winners, winnersSet, setWinners, setAudit]);
+  };
 
-  const draw = useCallback(() => {
-    if (rolling || countdown) return;
+  const draw = () => {
     drawCore();
-  }, [drawCore, rolling, countdown]);
+  };
 
-  const drawWithCountdown = useCallback(async () => {
-    if (rolling || countdown) return;
-    const hasPool = couponsPool.length > 0;
-    const hasPrize = remainingPrizes.length > 0;
-    if (!hasPool || !hasPrize) return drawCore();
-
+  const drawWithCountdown = async () => {
+    if (!couponsPool.length || !remainingPrizes.length) return drawCore();
     for (let i = 3; i >= 1; i--) {
       setCountdown(i);
-      // eslint-disable-next-line no-await-in-loop
       await new Promise((r) => setTimeout(r, 700));
     }
     setCountdown(0);
-
     setRolling(true);
     if (rollTimerRef.current) window.clearInterval(rollTimerRef.current);
     rollTimerRef.current = window.setInterval(() => {
-      const currentPool = (() => {
-        const pool: Array<{ name: string; couponNumber: number }> = [];
-        for (const p of participants) {
-          if (winnersSet.has((p.name || "").toLowerCase())) continue;
-          const qty = Math.max(0, Number(p.qty) || 0);
-          for (let i = 1; i <= qty; i++) pool.push({ name: p.name, couponNumber: i });
-        }
-        return pool;
-      })();
-      if (!currentPool.length) return;
-      const idx = Math.floor(Math.random() * currentPool.length);
-      const pick = currentPool[idx];
+      if (!couponsPool.length) return;
+      const idx = Math.floor(Math.random() * couponsPool.length);
+      const pick = couponsPool[idx];
       setRollView({ name: pick.name, couponNumber: pick.couponNumber });
     }, 80);
-
     await new Promise((r) => setTimeout(r, 1800));
     setRolling(false);
     if (rollTimerRef.current) window.clearInterval(rollTimerRef.current);
     rollTimerRef.current = null;
     drawCore();
-  }, [participants, winnersSet, drawCore, couponsPool.length, remainingPrizes.length, rolling, countdown]);
+  };
 
-  const exportAudit = useCallback(() => {
+  const exportAudit = () => {
     if (!audit.length) return alert("Sem registros para exportar.");
     downloadCSV(`auditoria-${new Date().toISOString().slice(0, 10)}.csv`, audit as any);
-  }, [audit]);
-  const exportExcel = useCallback(() => {
+  };
+  const exportExcel = () => {
     if (!audit.length) return alert("Sem registros para exportar.");
     downloadExcel(`auditoria-${new Date().toISOString().slice(0, 10)}.xls`, audit as any);
-  }, [audit]);
+  };
 
-  // KPIs
+  // ────────────────── UI helpers
   const Stat = memo<{ label: string; value: React.ReactNode }>(({ label, value }) => (
-    <div className="kpi" role="status" aria-live="polite">
+    <div className="kpi">
       <span>{label}</span>
       <span>{value}</span>
     </div>
   ));
   Stat.displayName = "Stat";
 
-  // Cabeçalho
   const Header = memo(() => (
     <div className="flex-col gap-2 header">
-      <h1 className="h1">🎯 Sorteio Grupo Lukma</h1>
+      <h1 className="h1">🎯 Sorteio Ao Vivo</h1>
       <p className="muted">Sistema de sorteio com abas, importação em massa e modo palco.</p>
     </div>
   ));
   Header.displayName = "Header";
 
-  // Strip de logos (entre o título e os KPIs)
-const LogoStrip = memo(() => {
-  const base = import.meta.env.BASE_URL || "/";
-  return (
-    <div className="logos-strip" aria-label="Logos">
-      <span className="logo-badge">
-        <img src={`${base}lukma.png`} alt="Lukma" />
-      </span>
-      <span className="logo-badge">
-        <img src={`${base}lukbox.png`} alt="Lukbox" />
-      </span>
-    </div>
-  );
-});
-
-
-  // Overlays
   const WinnerOverlay = () =>
     highlight ? (
-      <div className="overlay" onClick={() => setHighlight(null)} role="dialog" aria-modal="true">
+      <div className="overlay" onClick={() => setHighlight(null)}>
         <div className="winner-modal">
           <div className="muted small">Ganhador do prêmio</div>
           <div className="winner-prize">{highlight.prize}</div>
@@ -428,15 +363,9 @@ const LogoStrip = memo(() => {
     ) : null;
 
   const Tabs = () => (
-    <div className="tabs" role="tablist" aria-label="Abas do sistema">
+    <div className="tabs">
       {TABS.map((t) => (
-        <button
-          key={t.key}
-          onClick={() => setTab(t.key)}
-          className={`tab ${tab === t.key ? "active" : ""}`}
-          role="tab"
-          aria-selected={tab === t.key}
-        >
+        <button key={t.key} onClick={() => setTab(t.key)} className={`tab ${tab === t.key ? "active" : ""}`}>
           {t.label}
         </button>
       ))}
@@ -445,7 +374,7 @@ const LogoStrip = memo(() => {
 
   const CountdownOverlay = () =>
     countdown ? (
-      <div className="countdown" aria-live="assertive">
+      <div className="countdown">
         <div className="countdown-number">{countdown}</div>
       </div>
     ) : null;
@@ -459,7 +388,7 @@ const LogoStrip = memo(() => {
       </div>
     ) : null;
 
-  // Linha de participante
+  // linha de participante (memo) para não perder foco do input ao digitar (edita local e salva no blur)
   type RowProps = {
     p: Participant;
     onEdit: (name: string, value: string) => void;
@@ -557,7 +486,7 @@ const LogoStrip = memo(() => {
               className="textarea"
               placeholder={"Cole linhas no formato:\nRafael,30\nJuliana,12"}
             />
-            <div className="actions row gap">
+            <div className="actions">
               <button onClick={bulkImport} className="btn btn-primary alt">
                 Importar
               </button>
@@ -576,6 +505,12 @@ const LogoStrip = memo(() => {
         <div className="card">
           <div className="row-between mb-3">
             <h2 className="title">Participantes cadastrados</h2>
+            <input
+              ref={searchRef}
+              onInput={applySearchFromRef}
+              placeholder="Buscar pelo nome..."
+              className="input search"
+            />
           </div>
           <div className="scroll-list">
             {filtered.map((p) => (
@@ -630,68 +565,74 @@ const LogoStrip = memo(() => {
         <button onClick={() => setPresenterMode(!presenterMode)} className="btn btn-ghost">
           {presenterMode ? "Sair do modo Apresentação" : "Modo Apresentação"}
         </button>
-        <button onClick={resetWinners} className="btn btn-warn" disabled={rolling || countdown > 0}>
+        <button onClick={resetWinners} className="btn btn-warn">
           Resetar vencedores
         </button>
-        <button onClick={hardReset} className="btn btn-danger" disabled={rolling || countdown > 0}>
+        <button onClick={hardReset} className="btn btn-danger">
           Zerar tudo
         </button>
       </div>
     </div>
   );
 
-  const BlocSorteio = () => {
-    const disabled = !couponsPool.length || !remainingPrizes.length || rolling || countdown > 0;
-    return (
-      <div className="card">
-        <h2 className="title">Sorteio</h2>
-        <div className="grid-2 mb-3">
-          <Stat label="Cupons elegíveis" value={couponsPool.length} />
-          <Stat label="Prêmios restantes" value={remainingPrizes.length} />
-        </div>
-        <div className="grid-2">
-          <button className="btn btn-primary big" onClick={draw} disabled={disabled}>
-            {disabled ? "Indisponível" : "🎉 Sortear agora"}
-          </button>
-          <button className="btn btn-primary big alt" onClick={drawWithCountdown} disabled={disabled}>
-            {disabled ? "Indisponível" : "⏳ Sortear com contagem"}
-          </button>
-        </div>
-        <div className="muted xs mt-2">* O vencedor é removido automaticamente dos próximos sorteios.</div>
+  const BlocSorteio = () => (
+    <div className="card">
+      <h2 className="title">Sorteio</h2>
+      <div className="grid-2 mb-3">
+        <Stat label="Cupons elegíveis" value={couponsPool.length} />
+        <Stat label="Prêmios restantes" value={remainingPrizes.length} />
       </div>
-    );
-  };
+      <div className="grid-2">
+        <button className="btn btn-primary big" onClick={draw} disabled={!couponsPool.length || !remainingPrizes.length}>
+          {couponsPool.length && remainingPrizes.length ? "🎉 Sortear agora" : "Indisponível"}
+        </button>
+        <button
+          className="btn btn-primary big alt"
+          onClick={drawWithCountdown}
+          disabled={!couponsPool.length || !remainingPrizes.length}
+        >
+          {couponsPool.length && remainingPrizes.length ? "⏳ Sortear com contagem" : "Indisponível"}
+        </button>
+      </div>
+      <div className="muted xs mt-2">* O vencedor é removido automaticamente dos próximos sorteios.</div>
+    </div>
+  );
 
-  // Palco dentro da aba
+  // 🔊 PALCO incorporado logo abaixo dos controles/bloco de sorteio
   const PalcoDentroDoSorteio = () => (
-    <div className="card palco-card">
-      <div className="palco-header">
-        <div className="muted">
-          <div className="xs">Próximo prêmio</div>
-          <div className="h3">{remainingPrizes[0]?.name || "—"}</div>
+    <div className="card" style={{ padding: 0 }}>
+      <div className="p-1">
+        <div className="row-between mb-6" style={{ padding: "16px 16px 0 16px" }}>
+          <div className="muted">
+            <div className="xs">Próximo prêmio</div>
+            <div className="h3">{remainingPrizes[0]?.name || "—"}</div>
+          </div>
+          <div className="row gap">
+          </div>
         </div>
-      </div>
-      <div className="palco">
-        {rolling ? (
-          <>
-            <div className="muted mb-2">Sorteando...</div>
-            <div className="palco-name">{rollView.name}</div>
-            <div className="palco-coupon">Cupom Nº {String(rollView.couponNumber || "").padStart(2, "0")}</div>
-          </>
-        ) : (
-          <>
-            <div className="grid-2 kpi-area">
-              <Stat label="Participantes" value={participants.length} />
-              <Stat label="Prêmios restantes" value={remainingPrizes.length} />
-            </div>
-          </>
-        )}
+
+        <div className="palco" style={{ margin: 16 }}>
+          {rolling ? (
+            <>
+              <div className="muted mb-2">Sorteando...</div>
+              <div className="palco-name">{rollView.name}</div>
+              <div className="palco-coupon">Cupom Nº {String(rollView.couponNumber || "").padStart(2, "0")}</div>
+            </>
+          ) : (
+            <>
+              <div className="grid-2 kpi-area">
+                <Stat label="Participantes" value={participants.length} />
+                <Stat label="Prêmios restantes" value={remainingPrizes.length} />
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
 
   const AbaSorteio = () => (
-    <div className={`stack gap ${presenterMode ? "presenter" : ""}`}>
+    <div className="stack gap">
       <SorteioControls />
       <BlocSorteio />
       <PalcoDentroDoSorteio />
@@ -709,7 +650,7 @@ const LogoStrip = memo(() => {
           <button onClick={exportExcel} className="btn btn-primary">
             Exportar Excel
           </button>
-          <button onClick={() => setAudit([])} className="btn btn-ghost" disabled={rolling || countdown > 0}>
+          <button onClick={() => setAudit([])} className="btn btn-ghost">
             Limpar
           </button>
         </div>
@@ -749,12 +690,10 @@ const LogoStrip = memo(() => {
   );
 
   return (
-    <div className={`app ${presenterMode ? "presenter" : ""}`}>
+    <div className="app">
       <div className="container">
-        {/* Cabeçalho em 3 colunas: Título | Logos | KPIs */}
-        <div className="mb-6 header-top header-3col">
+        <div className="row-between mb-6 header-top">
           <Header />
-          <LogoStrip />
           <div className="kpi-row">
             <Stat label="Participantes" value={participants.length} />
             <Stat label="Cupons" value={totalCoupons} />
