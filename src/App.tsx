@@ -389,7 +389,7 @@ export default function App() {
   const Header = memo(() => (
     <div className="flex-col gap-2 header">
       <h1 className="h1">🎯 Sorteio Grupo Lukma</h1>
-      <p className="muted">Sistema de sorteio com abas, importação em massa e modo palco.</p>
+      <p className="muted"></p>
     </div>
   ));
   Header.displayName = "Header";
