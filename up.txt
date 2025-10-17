@@ -1,0 +1,43 @@
+A) Sem Actions — “Deploy from a branch” usando a pasta docs/
+
+Ideal se você quer só dar git push e o Pages servir direto da pasta docs.
+
+vite.config.ts (ajuste a base e o outDir para docs)
+
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  base: '/sorteio-ao-vivo/', // <= nome do repo
+  build: {
+    outDir: 'docs'
+  }
+})
+
+
+
+Build local e commit do docs/
+
+npm install
+npm run build     # gera a pasta docs/
+git add .
+git commit -m "build: publica na pasta docs"
+git push
+
+
+Config do GitHub Pages
+
+Repo → Settings → Pages
+
+Source: Deploy from a branch
+
+Branch: main (ou a branch que você usa)
+
+Folder: /docs
+
+Save.
+
+Pronto. O Pages vai servir o conteúdo de docs/.
+
+Obs: garanta que docs/ não está no .gitignore.
