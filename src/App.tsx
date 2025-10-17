@@ -627,9 +627,6 @@ const LogoStrip = memo(() => {
         <Stat label="Vencedores" value={winners.length} />
       </div>
       <div className="row gap">
-        <button onClick={() => setPresenterMode(!presenterMode)} className="btn btn-ghost">
-          {presenterMode ? "Sair do modo Apresentação" : "Modo Apresentação"}
-        </button>
         <button onClick={resetWinners} className="btn btn-warn" disabled={rolling || countdown > 0}>
           Resetar vencedores
         </button>
